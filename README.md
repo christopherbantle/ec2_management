@@ -53,7 +53,7 @@ stopped
 ### `update_sg_ingress`
 
 Scope all IP ranges with a description matching the description in the configuration file
-to your current public IP address.
+to your current public IP address, and then output the security group's ingress rules.
  
 ```bash
 ./server update_sg_ingress vpn_server
