@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+import sys
+import json
+from configparser import ConfigParser
+import boto3
+import requests
+
+
+def get_sg_ingress_rules(ec2_client, sg_id):
+    return ec2_client.describe_security_groups(GroupIds=[sg_id])['SecurityGroups'][0]['IpPermissions']
+
+
+def update_sg_ingress(ec2_client, sg_id, range_description):
+    public_ip = requests.get('https://api.ipify.org').text
+    cidr = '{public_ip}/32'.format(public_ip=public_ip)
+    rules = get_sg_ingress_rules(ec2_client, sg_id)
+    revoked_rules = []
+    authorized_rules = []
+    for rule in rules:
+        revoked_ranges = []
+        authorized_ranges = []
+        for ip_range in rule.get('IpRanges', []):
+            if ip_range.get('Description') == range_description:
+                revoked_ranges.append(ip_range)
+                authorized_ranges.append({'CidrIp': cidr, 'Description': range_description})
+        if revoked_ranges and authorized_ranges:
+            revoked_rule = {
+                'FromPort': rule['FromPort'],
+                'IpProtocol': rule['IpProtocol'],
+                'IpRanges': revoked_ranges,
+                'ToPort': rule['ToPort']
+            }
+            revoked_rules.append(revoked_rule)
+            authorized_rule = {
+                'FromPort': rule['FromPort'],
+                'IpProtocol': rule['IpProtocol'],
+                'IpRanges': authorized_ranges,
+                'ToPort': rule['ToPort']
+            }
+            authorized_rules.append(authorized_rule)
+    ec2_client.authorize_security_group_ingress(GroupId=sg_id, IpPermissions=authorized_rules)
+    ec2_client.revoke_security_group_ingress(GroupId=sg_id, IpPermissions=revoked_rules)
+    print(json.dumps(get_sg_ingress_rules(ec2_client, sg_id), indent=4))
+
+
+def start_instance(ec2_client, instance_id):
+    ec2_client.start_instances(InstanceIds=[instance_id])
+    waiter = ec2_client.get_waiter('instance_running')
+    waiter.wait(InstanceIds=[instance_id])
+    response = ec2_client.describe_instances(InstanceIds=[instance_id])
+    print(response['Reservations'][0]['Instances'][0]['PublicDnsName'])
+
+
+def stop_instance(ec2_client, instance_id):
+    ec2_client.stop_instances(InstanceIds=[instance_id])
+
+
+def get_instance_state(ec2_client, instance_id):
+    response = ec2_client.describe_instances(InstanceIds=[instance_id])
+    print(response['Reservations'][0]['Instances'][0]['State']['Name'])
+
+
+def main():
+    config = ConfigParser()
+    config.read('.servers')
+
+    action = sys.argv[1]
+    server_alias = sys.argv[2]
+    server_details = config[server_alias]
+
+    ec2_client = boto3.client('ec2', region_name=server_details['region'])
+
+    if action == 'update_sg_ingress':
+        update_sg_ingress(ec2_client, server_details['sg_id'], server_details['range_description'])
+    elif action == 'start':
+        start_instance(ec2_client, server_details['instance_id'])
+    elif action == 'stop':
+        stop_instance(ec2_client, server_details['instance_id'])
+    elif action == 'get_state':
+        get_instance_state(ec2_client, server_details['instance_id'])
+    else:
+        raise NotImplementedError('Script does not support action {action}'.format(action=action))
+
+
+if __name__ == '__main__':
+    main()
