@@ -1,6 +1,6 @@
 # EC2 Management Script
 
-A script to manage EC2 instances, in particular, start/stop an instance, update the instance's SG ingress rules
+A script to manage EC2 instances, in particular, to start/stop an instance, update the instance's SG ingress rules
 with your IP, and get the instance's state.
 
 ## Configuration File
